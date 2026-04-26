@@ -4,6 +4,9 @@
 		"$(MODDABLE)/examples/manifest_typings.json"
 	],
 	"modules": {
-		"*": ["./main", "./settings", "./battery", "./weather"]
+		"main": "./main",
+		"settings": "./settings",
+		"battery": "./battery",
+		"weather": "./weather"
 	}
 }
