@@ -4,7 +4,10 @@
   "version": "1.0.0",
   "keywords": ["pebble-app"],
   "private": true,
-  "dependencies": {},
+  "dependencies": {
+    "@moddable/pebbleproxy": "^0.1.8",
+    "@rebble/clay": "^1.0.8"
+  },
   "pebble": {
     "displayName": "ModernClassic",
     "uuid": "47c60581-145d-4db4-8983-db3fefcb1fe2",
@@ -18,8 +21,19 @@
     "watchapp": {
       "watchface": true
     },
+    "capabilities": [
+      "configurable",
+      "location"
+    ],
     "messageKeys": [
-      "dummy"
+      "BackgroundColor",
+      "DialColor",
+      "NumberColor",
+      "HourHandColor",
+      "MinuteHandColor",
+      "DateColor",
+      "ComplicationColor",
+      "UseFahrenheit"
     ],
     "resources": {
       "media": []

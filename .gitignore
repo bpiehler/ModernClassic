@@ -1,2 +1,6 @@
 github_key
 github_key.pub
+node_modules/
+build/
+.lock-waf_linux_build
+package-lock.json

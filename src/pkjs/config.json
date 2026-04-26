@@ -1,0 +1,76 @@
+[
+  {
+    "type": "heading",
+    "defaultValue": "ModernClassic Settings"
+  },
+  {
+    "type": "section",
+    "items": [
+      {
+        "type": "heading",
+        "defaultValue": "Colors"
+      },
+      {
+        "type": "color",
+        "messageKey": "BackgroundColor",
+        "label": "Background",
+        "defaultValue": "0x000000"
+      },
+      {
+        "type": "color",
+        "messageKey": "DialColor",
+        "label": "Dial & Ticks",
+        "defaultValue": "0xAAAAAA"
+      },
+      {
+        "type": "color",
+        "messageKey": "NumberColor",
+        "label": "Numbers & Text",
+        "defaultValue": "0xFFFFFF"
+      },
+      {
+        "type": "color",
+        "messageKey": "HourHandColor",
+        "label": "Hour Hand",
+        "defaultValue": "0xFFFFFF"
+      },
+      {
+        "type": "color",
+        "messageKey": "MinuteHandColor",
+        "label": "Minute Hand",
+        "defaultValue": "0xDDDDDD"
+      },
+      {
+        "type": "color",
+        "messageKey": "DateColor",
+        "label": "Date",
+        "defaultValue": "0xFFFFFF"
+      },
+      {
+        "type": "color",
+        "messageKey": "ComplicationColor",
+        "label": "Complication Outline",
+        "defaultValue": "0x888888"
+      }
+    ]
+  },
+  {
+    "type": "section",
+    "items": [
+      {
+        "type": "heading",
+        "defaultValue": "Weather"
+      },
+      {
+        "type": "toggle",
+        "messageKey": "UseFahrenheit",
+        "label": "Use Fahrenheit",
+        "defaultValue": false
+      }
+    ]
+  },
+  {
+    "type": "submit",
+    "defaultValue": "Save Settings"
+  }
+]
