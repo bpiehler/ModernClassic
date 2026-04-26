@@ -33,7 +33,10 @@
       "MinuteHandColor",
       "DateColor",
       "ComplicationColor",
-      "UseFahrenheit"
+      "UseFahrenheit",
+      "WeatherRequest",
+      "WeatherTemp",
+      "WeatherUnit"
     ],
     "resources": {
       "media": []

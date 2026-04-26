@@ -211,13 +211,40 @@ function onWeatherUpdate() {
 
 const message = new Message({
     keys: ["BackgroundColor", "DialColor", "NumberColor", "HourHandColor",
-           "MinuteHandColor", "DateColor", "ComplicationColor", "UseFahrenheit"],
+           "MinuteHandColor", "DateColor", "ComplicationColor", "UseFahrenheit",
+           "WeatherRequest", "WeatherTemp", "WeatherUnit"],
     onReadable() {
         const msg = this.read();
-        settings = Settings.applySettingsFromMessage(msg);
-        Weather.initWeather(settings.UseFahrenheit);
-        const now = new Date();
-        draw(now);
+        let needsRedraw = false;
+
+        // Check for weather response from PKJS
+        let weatherTemp = null;
+        let weatherUnit = null;
+        msg.forEach((value, key) => {
+            if (key === "WeatherTemp") weatherTemp = value;
+            if (key === "WeatherUnit") weatherUnit = value;
+        });
+
+        if (weatherTemp !== null && weatherUnit !== null) {
+            Weather.setWeatherData(weatherTemp, weatherUnit);
+            needsRedraw = true;
+        }
+
+        // Check for settings changes from Clay
+        const hasSettings = msg.has("BackgroundColor") || msg.has("DialColor") ||
+                            msg.has("NumberColor") || msg.has("HourHandColor") ||
+                            msg.has("MinuteHandColor") || msg.has("DateColor") ||
+                            msg.has("ComplicationColor") || msg.has("UseFahrenheit");
+        if (hasSettings) {
+            settings = Settings.applySettingsFromMessage(msg);
+            Weather.initWeather(settings.UseFahrenheit);
+            needsRedraw = true;
+        }
+
+        if (needsRedraw) {
+            const now = new Date();
+            draw(now);
+        }
     },
     onWritable() {
         console.log("Message channel ready");
@@ -229,11 +256,19 @@ const message = new Message({
 
 // ===== INITIALIZATION =====
 
+// Ensure watch global is accessible
 try {
     Battery.initBattery(onBatteryUpdate);
     Weather.setOnUpdate(onWeatherUpdate);
-    watch.addEventListener("minutechange", onMinuteChange);
-    console.log("Initialization complete");
+
+    // Use globalThis.watch for explicit access to the Pebble watch global
+    const watchGlobal = globalThis.watch;
+    if (watchGlobal) {
+        watchGlobal.addEventListener("minutechange", onMinuteChange);
+        console.log("Initialization complete");
+    } else {
+        console.log("watch global not available");
+    }
 } catch (e) {
     console.log("Initialization error: " + e);
 }

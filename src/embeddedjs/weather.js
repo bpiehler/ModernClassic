@@ -1,6 +1,4 @@
-/** weather.js - Fetch weather data via phone proxy and cache results */
-
-import Location from "embedded:sensor/Location";
+/** weather.js - Weather data via app messages to phone PKJS */
 
 const CACHE_KEY_TEMP = "weather_temp";
 const CACHE_KEY_TIME = "weather_time";
@@ -10,7 +8,6 @@ const REFRESH_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
 let currentTemp = null;
 let currentUnit = "C";
 let onUpdate = null;
-let refreshTimer = null;
 
 function getCachedWeather() {
     const temp = localStorage.getItem(CACHE_KEY_TEMP);
@@ -31,76 +28,11 @@ function cacheWeather(temp, unit) {
     localStorage.setItem(CACHE_KEY_UNIT, unit);
 }
 
-function celsiusToFahrenheit(c) {
-    return Math.round((c * 9 / 5) + 32);
-}
-
-export async function fetchWeather(useFahrenheit) {
-    if (!watch.connected.pebblekit) {
-        console.log("Weather: phone proxy not ready, using cache");
-        const cached = getCachedWeather();
-        if (cached) {
-            currentTemp = cached.temp;
-            currentUnit = cached.unit;
-            if (onUpdate) onUpdate();
-        }
-        return;
-    }
-
-    try {
-        const location = new Location({
-            onSample() {
-                const sample = this.sample();
-                this.close();
-                fetchFromAPI(sample.latitude, sample.longitude, useFahrenheit);
-            }
-        });
-    } catch (e) {
-        console.log("Weather: location error: " + e);
-        const cached = getCachedWeather();
-        if (cached) {
-            currentTemp = cached.temp;
-            currentUnit = cached.unit;
-            if (onUpdate) onUpdate();
-        }
-    }
-}
-
-async function fetchFromAPI(lat, lon, useFahrenheit) {
-    try {
-        const url = new URL("https://api.open-meteo.com/v1/forecast");
-        url.search = new URLSearchParams({
-            latitude: String(lat),
-            longitude: String(lon),
-            current: "temperature_2m"
-        });
-
-        const response = await fetch(url);
-        if (!response.ok) throw new Error("HTTP " + response.status);
-
-        const data = await response.json();
-        const tempC = data.current.temperature_2m;
-        const temp = useFahrenheit ? celsiusToFahrenheit(tempC) : Math.round(tempC);
-        const unit = useFahrenheit ? "F" : "C";
-
-        currentTemp = temp;
-        currentUnit = unit;
-        cacheWeather(temp, unit);
-
-        if (onUpdate) onUpdate();
-
-        // Schedule next refresh
-        if (refreshTimer) clearTimeout(refreshTimer);
-        refreshTimer = setTimeout(() => fetchWeather(useFahrenheit), REFRESH_INTERVAL_MS);
-    } catch (e) {
-        console.log("Weather: fetch error: " + e);
-        const cached = getCachedWeather();
-        if (cached) {
-            currentTemp = cached.temp;
-            currentUnit = cached.unit;
-            if (onUpdate) onUpdate();
-        }
-    }
+export function setWeatherData(temp, unit) {
+    currentTemp = temp;
+    currentUnit = unit;
+    cacheWeather(temp, unit);
+    if (onUpdate) onUpdate();
 }
 
 export function getCurrentTemp() {
@@ -116,10 +48,29 @@ export function setOnUpdate(callback) {
 }
 
 export function initWeather(useFahrenheit) {
+    // Load cached weather if available
     const cached = getCachedWeather();
     if (cached) {
         currentTemp = cached.temp;
         currentUnit = cached.unit;
     }
-    fetchWeather(useFahrenheit);
+
+    // Request fresh weather from phone via app message
+    if (globalThis.watch && globalThis.watch.connected && globalThis.watch.connected.app) {
+        requestWeatherFromPhone(useFahrenheit);
+    }
+}
+
+function requestWeatherFromPhone(useFahrenheit) {
+    try {
+        // Send request to PKJS via app message
+        const msg = new (require("pebble/message"))({
+            keys: ["WeatherRequest", "WeatherTemp", "WeatherUnit"]
+        });
+        if (msg.writable) {
+            msg.write(new Map([["WeatherRequest", useFahrenheit ? 1 : 0]]));
+        }
+    } catch (e) {
+        console.log("Weather request error: " + e);
+    }
 }

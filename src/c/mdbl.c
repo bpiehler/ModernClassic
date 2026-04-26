@@ -6,5 +6,7 @@ int main(void) {
 
   moddable_createMachine(NULL);
 
+  app_event_loop();
+
   window_destroy(w);
 }
