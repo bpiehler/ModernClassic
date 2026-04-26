@@ -13,11 +13,10 @@ const CX = Math.floor(render.width / 2);
 const CY = Math.floor(render.height / 2);
 const DIAL_RADIUS = Math.min(CX, CY) - 8;  // Leave margin for round screen
 
-// Fonts
+// Fonts (use known-available Pebble sizes)
 const numFont = new render.Font("Leco-Regular", 20);
-const dateFont = new render.Font("Gothic-Regular", 16);
+const dateFont = new render.Font("Gothic-Regular", 14);
 const compFont = new render.Font("Gothic-Regular", 14);
-const smallFont = new render.Font("Gothic-Regular", 12);
 
 // Load settings
 let settings = Settings.loadSettings();
