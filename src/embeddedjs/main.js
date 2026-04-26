@@ -4,15 +4,17 @@ import Poco from "commodetto/Poco";
 const render = new Poco(screen);
 const CX = Math.floor(render.width / 2);
 const CY = Math.floor(render.height / 2);
-const DIAL_RADIUS = Math.min(CX, CY) - 8;
+const DIAL_RADIUS = Math.min(CX, CY) - 10;
 
-const white = render.makeColor(255, 255, 255);
-const black = render.makeColor(0, 0, 0);
-const gray = render.makeColor(128, 128, 128);
-const darkGray = render.makeColor(64, 64, 64);
-const green = render.makeColor(0, 200, 0);
-const yellow = render.makeColor(220, 200, 0);
-const red = render.makeColor(220, 0, 0);
+const C_BLACK = render.makeColor(0, 0, 0);
+const C_DARK = render.makeColor(32, 32, 32);
+const C_GRAY = render.makeColor(128, 128, 128);
+const C_WHITE = render.makeColor(255, 255, 255);
+const C_HOUR = render.makeColor(255, 255, 255);
+const C_MIN = render.makeColor(180, 180, 180);
+const C_GREEN = render.makeColor(0, 200, 0);
+const C_YELLOW = render.makeColor(220, 200, 0);
+const C_RED = render.makeColor(220, 0, 0);
 
 let numFont = null, dateFont = null, compFont = null;
 let batteryPercent = 100;
@@ -77,104 +79,96 @@ function redraw() {
 }
 
 function draw(date) {
-    // 1. Background
-    try { render.fillRectangle(black, 0, 0, render.width, render.height); } catch (e) {}
+    // Black background
+    render.fillRectangle(C_BLACK, 0, 0, render.width, render.height);
 
-    // 2. Dial ring
-    try { render.drawCircle(white, CX, CY, DIAL_RADIUS, 0, 360); } catch (e) {}
+    // Dark gray dial face (so white elements show up)
+    render.fillRectangle(C_DARK,
+        CX - DIAL_RADIUS, CY - DIAL_RADIUS,
+        DIAL_RADIUS * 2, DIAL_RADIUS * 2);
 
-    // 3. Ticks
-    try {
-        for (let i = 0; i < 60; i++) {
-            const angle = (i * 6) - 90;
+    // Tick marks
+    for (let i = 0; i < 60; i++) {
+        const angle = (i * 6) - 90;
+        const radians = angle * Math.PI / 180;
+        const isHour = (i % 5 === 0);
+        const tickLen = isHour ? 14 : 7;
+        const tickWidth = isHour ? 2 : 1;
+        const innerR = DIAL_RADIUS - tickLen - 2;
+        const outerR = DIAL_RADIUS - 3;
+        const x1 = CX + Math.cos(radians) * innerR;
+        const y1 = CY + Math.sin(radians) * innerR;
+        const x2 = CX + Math.cos(radians) * outerR;
+        const y2 = CY + Math.sin(radians) * outerR;
+        render.drawLine(x1, y1, x2, y2, C_WHITE, tickWidth);
+    }
+
+    // Numbers 1-12
+    if (numFont) {
+        const numRadius = DIAL_RADIUS - 30;
+        for (let n = 1; n <= 12; n++) {
+            const angle = (n * 30) - 90;
             const radians = angle * Math.PI / 180;
-            const isHour = (i % 5 === 0);
-            const tickLen = isHour ? 12 : 6;
-            const tickWidth = isHour ? 2 : 1;
-            const innerR = DIAL_RADIUS - tickLen;
-            const outerR = DIAL_RADIUS - 2;
-            const x1 = CX + Math.cos(radians) * innerR;
-            const y1 = CY + Math.sin(radians) * innerR;
-            const x2 = CX + Math.cos(radians) * outerR;
-            const y2 = CY + Math.sin(radians) * outerR;
-            render.drawLine(x1, y1, x2, y2, white, tickWidth);
+            const nx = CX + Math.cos(radians) * numRadius;
+            const ny = CY + Math.sin(radians) * numRadius;
+            const numStr = String(n);
+            const tw = render.getTextWidth(numStr, numFont);
+            render.drawText(numStr, numFont, C_WHITE, nx - tw / 2, ny - numFont.height / 2);
         }
-    } catch (e) {}
+    }
 
-    // 4. Numbers
-    try {
-        if (numFont) {
-            const numRadius = DIAL_RADIUS - 28;
-            for (let n = 1; n <= 12; n++) {
-                const angle = (n * 30) - 90;
-                const radians = angle * Math.PI / 180;
-                const nx = CX + Math.cos(radians) * numRadius;
-                const ny = CY + Math.sin(radians) * numRadius;
-                const numStr = String(n);
-                const tw = render.getTextWidth(numStr, numFont);
-                render.drawText(numStr, numFont, white, nx - tw / 2, ny - numFont.height / 2);
-            }
-        }
-    } catch (e) {}
+    // Date
+    if (dateFont) {
+        const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+        const dateStr = months[date.getMonth()] + " " + date.getDate();
+        const tw = render.getTextWidth(dateStr, dateFont);
+        const y = CY - DIAL_RADIUS + 50;
+        render.drawText(dateStr, dateFont, C_WHITE, CX - tw / 2, y);
+    }
 
-    // 5. Date
-    try {
-        if (dateFont) {
-            const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-            const dateStr = months[date.getMonth()] + " " + date.getDate();
-            const tw = render.getTextWidth(dateStr, dateFont);
-            const y = CY - DIAL_RADIUS + 45;
-            render.drawText(dateStr, dateFont, white, CX - tw / 2, y);
-        }
-    } catch (e) {}
+    // Hands
+    const hours = date.getHours() % 12;
+    const minutes = date.getMinutes();
+    const hourAngle = (hours * 30 + minutes * 0.5) - 90;
+    const minuteAngle = (minutes * 6) - 90;
 
-    // 6. Hands
-    try {
-        const hours = date.getHours() % 12;
-        const minutes = date.getMinutes();
-        const hourAngle = (hours * 30 + minutes * 0.5) - 90;
-        const minuteAngle = (minutes * 6) - 90;
+    const hourRad = hourAngle * Math.PI / 180;
+    const hourLen = Math.floor(DIAL_RADIUS * 0.45);
+    render.drawLine(CX, CY,
+        CX + Math.cos(hourRad) * hourLen,
+        CY + Math.sin(hourRad) * hourLen,
+        C_HOUR, 5);
 
-        const hourRad = hourAngle * Math.PI / 180;
-        const hourLen = Math.floor(DIAL_RADIUS * 0.45);
-        render.drawLine(CX, CY,
-            CX + Math.cos(hourRad) * hourLen,
-            CY + Math.sin(hourRad) * hourLen,
-            white, 5);
+    const minRad = minuteAngle * Math.PI / 180;
+    const minLen = Math.floor(DIAL_RADIUS * 0.70);
+    render.drawLine(CX, CY,
+        CX + Math.cos(minRad) * minLen,
+        CY + Math.sin(minRad) * minLen,
+        C_MIN, 3);
 
-        const minRad = minuteAngle * Math.PI / 180;
-        const minLen = Math.floor(DIAL_RADIUS * 0.70);
-        render.drawLine(CX, CY,
-            CX + Math.cos(minRad) * minLen,
-            CY + Math.sin(minRad) * minLen,
-            gray, 3);
+    render.drawCircle(C_WHITE, CX, CY, 4, 0, 360);
 
-        render.drawCircle(white, CX, CY, 4, 0, 360);
-    } catch (e) {}
+    // Complications
+    if (compFont) {
+        const compRadius = 20;
 
-    // 7. Complications
-    try {
-        if (compFont) {
-            const compRadius = 22;
+        // Weather (left of center)
+        const wx = CX - Math.floor(DIAL_RADIUS * 0.50);
+        render.drawCircle(C_GRAY, wx, CY, compRadius, 0, 360);
+        const wstr = currentTemp !== null ? currentTemp + "°" + currentUnit : "--";
+        const wtw = render.getTextWidth(wstr, compFont);
+        render.drawText(wstr, compFont, C_BLACK, wx - wtw / 2, CY - compFont.height / 2);
 
-            // Weather (left)
-            const wx = CX - Math.floor(DIAL_RADIUS * 0.55);
-            render.drawCircle(darkGray, wx, CY, compRadius, 0, 360);
-            const wstr = currentTemp !== null ? currentTemp + "°" + currentUnit : "--";
-            const wtw = render.getTextWidth(wstr, compFont);
-            render.drawText(wstr, compFont, white, wx - wtw / 2, CY - compFont.height / 2);
-
-            // Battery (right)
-            const bx = CX + Math.floor(DIAL_RADIUS * 0.55);
-            const arcColor = batteryPercent > 50 ? green : batteryPercent > 20 ? yellow : red;
-            const endAngle = Math.floor(batteryPercent * 3.6);
-            render.drawCircle(darkGray, bx, CY, compRadius, 0, 360);
-            render.drawCircle(arcColor, bx, CY, compRadius - 4, 270, 270 + endAngle);
-            const bstr = batteryPercent + "%";
-            const btw = render.getTextWidth(bstr, compFont);
-            render.drawText(bstr, compFont, white, bx - btw / 2, CY - compFont.height / 2);
-        }
-    } catch (e) {}
+        // Battery (right of center)
+        const bx = CX + Math.floor(DIAL_RADIUS * 0.50);
+        const arcColor = batteryPercent > 50 ? C_GREEN : batteryPercent > 20 ? C_YELLOW : C_RED;
+        const endAngle = Math.floor(batteryPercent * 3.6);
+        render.drawCircle(C_GRAY, bx, CY, compRadius, 0, 360);
+        render.drawCircle(arcColor, bx, CY, compRadius - 4, 270, 270 + endAngle);
+        const bstr = batteryPercent + "%";
+        const btw = render.getTextWidth(bstr, compFont);
+        render.drawText(bstr, compFont, C_BLACK, bx - btw / 2, CY - compFont.height / 2);
+    }
 }
 
 console.log("Module loaded");
