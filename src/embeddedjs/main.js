@@ -1,12 +1,11 @@
 import Poco from "commodetto/Poco";
-import Message from "pebble/message";
 
+// ===== CORE SETUP (safe at module load) =====
 const render = new Poco(screen);
 const CX = Math.floor(render.width / 2);
 const CY = Math.floor(render.height / 2);
 const DIAL_RADIUS = Math.min(CX, CY) - 8;
 
-// Colors
 const white = render.makeColor(255, 255, 255);
 const black = render.makeColor(0, 0, 0);
 const gray = render.makeColor(128, 128, 128);
@@ -15,23 +14,99 @@ const green = render.makeColor(0, 200, 0);
 const yellow = render.makeColor(220, 200, 0);
 const red = render.makeColor(220, 0, 0);
 
-// Fonts
-let numFont, dateFont, compFont;
-try {
-    numFont = new render.Font("Leco-Regular", 20);
-    dateFont = new render.Font("Gothic-Regular", 14);
-    compFont = new render.Font("Gothic-Regular", 14);
-} catch (e) {}
-
-// State
+// ===== STATE =====
 let batteryPercent = 100;
 let currentTemp = null;
 let currentUnit = "C";
+let numFont = null, dateFont = null, compFont = null;
 
-function drawDial() {
+// ===== DEFERRED INIT =====
+function init() {
+    try {
+        numFont = new render.Font("Leco-Regular", 20);
+        dateFont = new render.Font("Gothic-Regular", 14);
+        compFont = new render.Font("Gothic-Regular", 14);
+    } catch (e) {}
+
+    // Battery
+    try {
+        const Battery = require("embedded:sensor/Battery");
+        const batt = new Battery({
+            onSample() {
+                batteryPercent = this.sample().percent;
+                redraw();
+            }
+        });
+        batteryPercent = batt.sample().percent;
+    } catch (e) {}
+
+    // Watch events
+    const wg = globalThis.watch;
+    if (wg && wg.addEventListener) {
+        wg.addEventListener("minutechange", function(e) {
+            render.begin();
+            draw(e.date);
+            render.end();
+        });
+    }
+
+    // Weather cache
+    const ct = localStorage.getItem("weather_temp");
+    const cu = localStorage.getItem("weather_unit");
+    if (ct !== null) {
+        currentTemp = parseFloat(ct);
+        currentUnit = cu || "C";
+    }
+
+    // Request fresh weather (deferred so app is ready)
+    try {
+        const Message = require("pebble/message");
+        const msg = new Message({ keys: ["WeatherRequest", "WeatherTemp", "WeatherUnit"] });
+        if (msg.writable) {
+            msg.write(new Map([["WeatherRequest", 0]]));
+        }
+    } catch (e) {}
+
+    // Handle responses
+    try {
+        const Message = require("pebble/message");
+        new Message({
+            keys: ["WeatherTemp", "WeatherUnit"],
+            onReadable() {
+                const m = this.read();
+                let updated = false;
+                m.forEach((value, key) => {
+                    if (key === "WeatherTemp") { currentTemp = value; updated = true; }
+                    if (key === "WeatherUnit") { currentUnit = value; updated = true; }
+                });
+                if (updated) {
+                    localStorage.setItem("weather_temp", String(currentTemp));
+                    localStorage.setItem("weather_unit", currentUnit);
+                    redraw();
+                }
+            }
+        });
+    } catch (e) {}
+
+    // Initial draw
+    redraw();
+}
+
+function redraw() {
+    render.begin();
+    draw(new Date());
+    render.end();
+}
+
+// ===== DRAW =====
+function draw(date) {
+    // Background
     render.fillRectangle(black, 0, 0, render.width, render.height);
+
+    // Dial ring
     render.drawCircle(white, CX, CY, DIAL_RADIUS, 0, 360);
 
+    // Ticks
     for (let i = 0; i < 60; i++) {
         const angle = (i * 6) - 90;
         const radians = angle * Math.PI / 180;
@@ -46,28 +121,30 @@ function drawDial() {
             white, tickWidth);
     }
 
-    const numRadius = DIAL_RADIUS - 28;
-    for (let n = 1; n <= 12; n++) {
-        const angle = (n * 30) - 90;
-        const radians = angle * Math.PI / 180;
-        const nx = CX + Math.cos(radians) * numRadius;
-        const ny = CY + Math.sin(radians) * numRadius;
-        const numStr = String(n);
-        const tw = render.getTextWidth(numStr, numFont);
-        render.drawText(numStr, numFont, white, nx - tw / 2, ny - numFont.height / 2);
+    // Numbers
+    if (numFont) {
+        const numRadius = DIAL_RADIUS - 28;
+        for (let n = 1; n <= 12; n++) {
+            const angle = (n * 30) - 90;
+            const radians = angle * Math.PI / 180;
+            const nx = CX + Math.cos(radians) * numRadius;
+            const ny = CY + Math.sin(radians) * numRadius;
+            const numStr = String(n);
+            const tw = render.getTextWidth(numStr, numFont);
+            render.drawText(numStr, numFont, white, nx - tw / 2, ny - numFont.height / 2);
+        }
     }
-}
 
-function drawDate() {
-    const now = new Date();
-    const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-    const dateStr = months[now.getMonth()] + " " + now.getDate();
-    const tw = render.getTextWidth(dateStr, dateFont);
-    const y = CY - DIAL_RADIUS + 45;
-    render.drawText(dateStr, dateFont, white, CX - tw / 2, y);
-}
+    // Date
+    if (dateFont) {
+        const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+        const dateStr = months[date.getMonth()] + " " + date.getDate();
+        const tw = render.getTextWidth(dateStr, dateFont);
+        const y = CY - DIAL_RADIUS + 45;
+        render.drawText(dateStr, dateFont, white, CX - tw / 2, y);
+    }
 
-function drawHands(date) {
+    // Hands
     const hours = date.getHours() % 12;
     const minutes = date.getMinutes();
     const hourAngle = (hours * 30 + minutes * 0.5) - 90;
@@ -88,104 +165,29 @@ function drawHands(date) {
         gray, 3);
 
     render.drawCircle(white, CX, CY, 4, 0, 360);
-}
 
-function drawComplications() {
-    const compRadius = 22;
+    // Complications
+    if (compFont) {
+        const compRadius = 22;
 
-    // Weather (left)
-    const wx = CX - Math.floor(DIAL_RADIUS * 0.55);
-    render.drawCircle(darkGray, wx, CY, compRadius, 0, 360);
-    if (currentTemp !== null) {
-        const str = currentTemp + "°" + currentUnit;
-        const tw = render.getTextWidth(str, compFont);
-        render.drawText(str, compFont, white, wx - tw / 2, CY - compFont.height / 2);
-    } else {
-        const tw = render.getTextWidth("--", compFont);
-        render.drawText("--", compFont, white, wx - tw / 2, CY - compFont.height / 2);
+        // Weather (left)
+        const wx = CX - Math.floor(DIAL_RADIUS * 0.55);
+        render.drawCircle(darkGray, wx, CY, compRadius, 0, 360);
+        const wstr = currentTemp !== null ? currentTemp + "°" + currentUnit : "--";
+        const wtw = render.getTextWidth(wstr, compFont);
+        render.drawText(wstr, compFont, white, wx - wtw / 2, CY - compFont.height / 2);
+
+        // Battery (right)
+        const bx = CX + Math.floor(DIAL_RADIUS * 0.55);
+        const arcColor = batteryPercent > 50 ? green : batteryPercent > 20 ? yellow : red;
+        const endAngle = Math.floor(batteryPercent * 3.6);
+        render.drawCircle(darkGray, bx, CY, compRadius, 0, 360);
+        render.drawCircle(arcColor, bx, CY, compRadius - 4, -90, endAngle - 90);
+        const bstr = batteryPercent + "%";
+        const btw = render.getTextWidth(bstr, compFont);
+        render.drawText(bstr, compFont, white, bx - btw / 2, CY - compFont.height / 2);
     }
-
-    // Battery (right)
-    const bx = CX + Math.floor(DIAL_RADIUS * 0.55);
-    const arcColor = batteryPercent > 50 ? green : batteryPercent > 20 ? yellow : red;
-    const endAngle = Math.floor(batteryPercent * 3.6);
-    render.drawCircle(darkGray, bx, CY, compRadius, 0, 360);
-    render.drawCircle(arcColor, bx, CY, compRadius - 4, -90, endAngle - 90);
-    const battStr = batteryPercent + "%";
-    const bw = render.getTextWidth(battStr, compFont);
-    render.drawText(battStr, compFont, white, bx - bw / 2, CY - compFont.height / 2);
 }
 
-function draw(date) {
-    drawDial();
-    drawDate();
-    drawHands(date);
-    drawComplications();
-    render.end();
-}
-
-// Time updates
-const watchGlobal = globalThis.watch;
-if (watchGlobal) {
-    watchGlobal.addEventListener("minutechange", function(e) {
-        render.begin();
-        draw(e.date);
-    });
-}
-
-// Battery
-let batterySensor = null;
-try {
-    const Battery = require("embedded:sensor/Battery");
-    batterySensor = new Battery({
-        onSample() {
-            const s = this.sample();
-            batteryPercent = s.percent;
-            if (globalThis.watch) {
-                render.begin();
-                draw(new Date());
-            }
-        }
-    });
-    batteryPercent = batterySensor.sample().percent;
-} catch (e) {}
-
-// Weather - load cache, request from phone
-const cachedTemp = localStorage.getItem("weather_temp");
-const cachedUnit = localStorage.getItem("weather_unit");
-if (cachedTemp !== null) {
-    currentTemp = parseFloat(cachedTemp);
-    currentUnit = cachedUnit || "C";
-}
-
-// Request fresh weather via app message
-try {
-    const msg = new Message({ keys: ["WeatherRequest", "WeatherTemp", "WeatherUnit"] });
-    if (msg.writable) {
-        msg.write(new Map([["WeatherRequest", 0]]));
-    }
-} catch (e) {}
-
-// Handle incoming messages (weather response, settings)
-try {
-    const msg = new Message({
-        keys: ["WeatherTemp", "WeatherUnit", "BackgroundColor", "DialColor", "NumberColor",
-               "HourHandColor", "MinuteHandColor", "DateColor", "ComplicationColor", "UseFahrenheit"],
-        onReadable() {
-            const m = this.read();
-            let needsRedraw = false;
-            m.forEach((value, key) => {
-                if (key === "WeatherTemp") { currentTemp = value; needsRedraw = true; }
-                if (key === "WeatherUnit") { currentUnit = value; needsRedraw = true; }
-            });
-            if (needsRedraw && globalThis.watch) {
-                render.begin();
-                draw(new Date());
-            }
-        }
-    });
-} catch (e) {}
-
-// Initial draw
-render.begin();
-draw(new Date());
+// Defer all init until after module load completes
+Timer.set(init, 100);
