@@ -7,106 +7,87 @@ An analog Pebble watchface built with Alloy (Moddable SDK), targeting **Gabbro**
 - **Framework:** Alloy (JavaScript/Moddable)
 - **Renderer:** Poco (procedural graphics)
 - **Configuration:** Clay (`@rebble/clay`) for phone-side settings
-- **Networking:** `@moddable/pebbleproxy` for weather API calls
+- **Networking:** `@moddable/pebbleproxy` for weather API calls via PKJS
 
 ## Visual Design (Gabbro 260×260)
 | Element | Position | Details |
 |---|---|---|
-| **Dial ring** | Center (130,130), radius ~120px | Thin circle + tick marks (longer at hours) |
+| **Background** | Full screen | Configurable color (default: black) |
+| **Dial face** | Center (130,130), radius ~120px | Configurable color (default: dark gray), tick marks at perimeter |
 | **Numbers 1–12** | Around dial perimeter | Sans-serif (Leco/Gothic), configurable color |
-| **Hour hand** | From center, length ~65px, thickness 5px | Configurable color |
-| **Minute hand** | From center, length ~90px, thickness 3px | Configurable color |
+| **Hour hand** | From center, length ~45% of radius, thickness 5px | Configurable color (default: white) |
+| **Minute hand** | From center, length ~70% of radius, thickness 3px | Configurable color (default: light gray) |
 | **No second hand** | — | Uses `minutechange` for battery savings |
-| **Date** | Above center (~11:30–12:30 position) | "Apr 25" format, configurable color |
-| **Weather complication** | Left of center (~9 o'clock), radius ~22px | Temp numerically (e.g., "72°") |
-| **Battery complication** | Right of center (~3 o'clock), radius ~22px | Percentage text + colored arc ring (green>50%, yellow 20-50%, red<20%) |
+| **Date** | Above center, near 12 o'clock | "Apr 25" format, configurable color |
+| **Weather complication** | Left of center (~9 o'clock), radius ~20px | Current temp numerically (e.g., "72°"), request via app message to phone |
+| **Battery complication** | Right of center (~3 o'clock), radius ~20px | Percentage text + colored arc ring (green>50%, yellow 20-50%, red<20%) |
 
 ## File Structure
 ```
 src/
   embeddedjs/
-    main.js           - Render loop, draw dial, hands, complications, date
-    settings.js       - localStorage settings management, defaults, color parsing
-    weather.js        - Weather fetching via Location sensor + Open-Meteo
-    battery.js        - Battery monitoring via Battery sensor
+    main.js           - Watchface rendering, settings, battery, weather (single file)
+    manifest.json     - Moddable manifest (standard single-module template)
   pkjs/
     config.json       - Clay configuration page definition
-    index.js          - PKJS proxy setup + Clay initialization
-package.json          - App manifest (updated capabilities, message keys)
+    index.js          - PKJS proxy setup + Clay + weather fetching
+  c/
+    mdbl.c            - C entry point (creates window, starts Moddable machine, event loop)
+package.json          - App manifest (capabilities, message keys, dependencies)
 plan.md               - This plan
 ```
 
+> **Note:** After experimentation with multi-module Moddable manifests, the project uses a single `main.js` for all watch-side logic. This matches the standard Alloy template structure and avoids module resolution issues.
+
 ## Module Responsibilities
 
-### `main.js`
+### `src/embeddedjs/main.js`
 - Subscribe to `watch.minutechange` for time updates
-- Draw sequence: background → dial ring & ticks → numbers → hands → complications → date
-- Precompute dial geometry, number positions, hand lengths based on `screen.width/height`
-- Import and use `settings.js`, `weather.js`, `battery.js`
+- Draw sequence: background → dial face → tick marks → numbers → hands → date → complications
+- Manage settings via `localStorage` with sensible defaults
+- Handle Clay config updates via `pebble/message` app messages
+- Monitor battery via `embedded:sensor/Battery`
+- Request weather updates via app messages to PKJS
+- Precompute dial geometry based on `screen.width/height`
 
-### `settings.js`
-- Load settings from `localStorage` with sensible defaults
-- Defaults: bg=#000000, dial=#AAAAAA, numbers=#FFFFFF, hour=#FFFFFF, minute=#DDDDDD, date=#FFFFFF, complications=#888888
-- Parse hex color strings to Poco `makeColor(r,g,b)`
-- Apply settings on startup and when Clay settings arrive via `Message`
+### `src/pkjs/index.js`
+- Set up `@moddable/pebbleproxy` for network proxying
+- Initialize Clay configuration page from `config.json`
+- Handle `WeatherRequest` app messages from watch:
+  - Use phone's `navigator.geolocation` to get location
+  - Fetch from Open-Meteo API via `fetch()`
+  - Send `WeatherTemp` and `WeatherUnit` back to watch via `Pebble.sendAppMessage()`
 
-### `weather.js`
-- On startup/request: use `Location` sensor to get lat/long
-- Wait for `watch.connected.pebblekit === true` before `fetch()`
-- API: `https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,weather_code`
-- Parse JSON, cache temp (°C, convert if °F) + condition in `localStorage`
-- Schedule refresh every 30 minutes via `setTimeout`
-- Handle errors: use cached data if available
+### `src/c/mdbl.c`
+- Create a Pebble window and push it to the stack
+- Call `moddable_createMachine(NULL)` to start the Moddable JS engine
+- Call `app_event_loop()` to keep the app alive and process OS events
+- Destroy window on exit
 
-### `battery.js`
-- `new Battery({ onSample() {...} })`
-- Store `percent`, `charging`, `plugged`
-- Trigger display update via callback
-- Determine arc color: green (>50%), yellow (20-50%), red (<20%)
+## Settings (Clay Configuration)
+All colors are configurable via the phone-side Clay page:
+- `BackgroundColor` — default: #000000
+- `DialColor` — default: #202020
+- `NumberColor` — default: #FFFFFF
+- `HourHandColor` — default: #FFFFFF
+- `MinuteHandColor` — default: #B0B0B0
+- `DateColor` — default: #FFFFFF
+- `ComplicationColor` — default: #808080
+- `UseFahrenheit` — toggle, default: false
 
-### `pkjs/index.js`
-```js
-const moddableProxy = require("@moddable/pebbleproxy");
-const Clay = require("@rebble/clay");
-const clayConfig = require("./config.json");
+Settings are stored in `localStorage` on the watch and persist across app restarts.
 
-const clay = new Clay(clayConfig);
-
-Pebble.addEventListener('ready', moddableProxy.readyReceived);
-Pebble.addEventListener('appmessage', function(e) {
-    if (moddableProxy.appMessageReceived(e)) return;
-    // Clay handles its own messages automatically
-});
-```
-
-### `pkjs/config.json` (Clay)
-Fields:
-- `BackgroundColor` — color picker (default: #000000)
-- `DialColor` — color picker (default: #AAAAAA)
-- `NumberColor` — color picker (default: #FFFFFF)
-- `HourHandColor` — color picker (default: #FFFFFF)
-- `MinuteHandColor` — color picker (default: #DDDDDD)
-- `DateColor` — color picker (default: #FFFFFF)
-- `ComplicationColor` — color picker (default: #888888)
-- `UseFahrenheit` — toggle (default: false)
-
-## package.json Updates
-- Add `"configurable"` to `capabilities` array
-- Update `messageKeys`: `BackgroundColor`, `DialColor`, `NumberColor`, `HourHandColor`, `MinuteHandColor`, `DateColor`, `ComplicationColor`, `UseFahrenheit`
-- Keep `"watchface": true` and `"projectType": "moddable"`
-
-## Dependencies
-```bash
-pebble package install @moddable/pebbleproxy
-pebble package install @rebble/clay
-```
+## package.json
+- Capabilities: `configurable`, `location`
+- Message keys: all settings fields plus `WeatherRequest`, `WeatherTemp`, `WeatherUnit`
+- Dependencies: `@moddable/pebbleproxy`, `@rebble/clay`
 
 ## Build & Run Instructions
 ```bash
 pebble build                             # Compile the project
-pebble install --emulator gabbro          # Test on round emulator
-pebble install --emulator emery           # Verify rectangular fallback
-pebble emu-battery --percent 45           # Test battery arc color
+pebble install --emulator gabbro --logs   # Test on round emulator with logs
+pebble install --emulator emery --logs    # Verify rectangular fallback
+pebble emu-battery --percent 45           # Test battery arc color (yellow)
 pebble emu-battery --percent 15           # Test low battery (red arc)
 ```
 
@@ -124,15 +105,16 @@ Since Alloy runs in an embedded JS environment without a standard test runner, t
    - ☐ Battery arc fills correctly; color changes at 50% and 20% thresholds
    - ☐ Battery percentage text centered in arc
    - ☐ Weather fetch returns temp; displays with ° symbol
-   - ☐ Weather updates every 30 min; uses cache when offline
+   - ☐ Weather updates via app message from PKJS
    - ☐ Clay config page opens from Pebble app
-   - ☐ All color changes apply immediately and persist after restart
+   - ☐ Color changes apply immediately and persist after restart
    - ☐ Settings persist across app restarts via `localStorage`
 
 ## Notes & Considerations
-- **Rounded hand ends:** `render.drawLine(cx, cy, endX, endY, color, thickness)` in Poco renders with rounded caps automatically — no extra work needed.
-- **Battery arc:** `render.drawCircle(color, cx, cy, radius, startAngle, endAngle)` draws partial arcs. Calculate start/end based on battery percent (e.g., 0° to 3.6° × percent).
-- **Weather caching:** Store `weather_temp`, `weather_time`, `weather_code` in `localStorage`. On startup, if cache <30 min old, use it while fetching fresh data.
-- **Location permission:** Add `"location"` to `capabilities` for `Location` sensor to work.
-- **Performance:** Full-screen redraw each minute is fine for this complexity. If needed later, use `render.begin(x,y,w,h)` for partial updates.
-- **Emery fallback:** On rectangular screen, use `Math.min(width, height)` as dial diameter and center it. Some clipping at corners is acceptable per user requirements.
+- **Single-file architecture:** All watch-side logic lives in `main.js` to match the standard Moddable template (`"*": "./main"`) and avoid module resolution issues.
+- **Rounded hand ends:** `render.drawLine(cx, cy, endX, endY, color, thickness)` in Poco renders with rounded caps automatically.
+- **Battery arc:** `render.drawCircle(color, cx, cy, radius, startAngle, endAngle)` draws partial arcs. Arc uses positive angles (270° to 270°+percent×3.6°).
+- **Weather architecture:** Watch sends `WeatherRequest` app message → PKJS gets phone GPS → fetches from Open-Meteo → sends `WeatherTemp`+`WeatherUnit` back to watch. No direct `fetch()` or `Location` sensor on watch side.
+- **Performance:** Full-screen redraw each minute is fine for this complexity. The `render.begin()`/`render.end()` pair batches all drawing commands.
+- **Emery fallback:** On rectangular screen, `Math.min(width, height)` determines dial diameter. Some clipping at corners is acceptable.
+- **Deferred initialization:** `setTimeout(init, 100)` delays sensor and message setup until the app event loop is running, avoiding startup crashes.
