@@ -6,22 +6,30 @@ let batteryPercent = 100;
 let isCharging = false;
 let isPlugged = false;
 let onUpdate = null;
+let batterySensor = null;
 
-const battery = new Battery({
-    onSample() {
-        const sample = this.sample();
-        batteryPercent = sample.percent;
-        isCharging = sample.charging;
-        isPlugged = sample.plugged;
-        if (onUpdate) onUpdate();
+export function initBattery(callback) {
+    onUpdate = callback;
+    try {
+        batterySensor = new Battery({
+            onSample() {
+                const sample = this.sample();
+                batteryPercent = sample.percent;
+                isCharging = sample.charging;
+                isPlugged = sample.plugged;
+                if (onUpdate) onUpdate();
+            }
+        });
+        const initial = batterySensor.sample();
+        batteryPercent = initial.percent;
+        isCharging = initial.charging;
+        isPlugged = initial.plugged;
+        console.log("Battery initialized: " + batteryPercent + "%");
+    } catch (e) {
+        console.log("Battery init error: " + e);
+        batteryPercent = 100;
     }
-});
-
-// Get initial state
-const initial = battery.sample();
-batteryPercent = initial.percent;
-isCharging = initial.charging;
-isPlugged = initial.plugged;
+}
 
 export function getPercent() {
     return batteryPercent;
@@ -39,10 +47,6 @@ export function getArcColor(render) {
     } else {
         return render.makeColor(220, 0, 0);      // Red
     }
-}
-
-export function setOnUpdate(callback) {
-    onUpdate = callback;
 }
 
 export function getArcAngles() {

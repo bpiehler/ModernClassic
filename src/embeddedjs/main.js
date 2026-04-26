@@ -6,20 +6,33 @@ import * as Settings from "settings";
 import * as Battery from "battery";
 import * as Weather from "weather";
 
+console.log("main.js loading");
+
 const render = new Poco(screen);
+
+console.log("Poco created, screen size: " + render.width + "x" + render.height);
 
 // Screen geometry
 const CX = Math.floor(render.width / 2);
 const CY = Math.floor(render.height / 2);
 const DIAL_RADIUS = Math.min(CX, CY) - 8;  // Leave margin for round screen
 
+console.log("Dial center: " + CX + "," + CY + " radius: " + DIAL_RADIUS);
+
 // Fonts (use known-available Pebble sizes)
-const numFont = new render.Font("Leco-Regular", 20);
-const dateFont = new render.Font("Gothic-Regular", 14);
-const compFont = new render.Font("Gothic-Regular", 14);
+let numFont, dateFont, compFont;
+try {
+    numFont = new render.Font("Leco-Regular", 20);
+    dateFont = new render.Font("Gothic-Regular", 14);
+    compFont = new render.Font("Gothic-Regular", 14);
+    console.log("Fonts loaded successfully");
+} catch (e) {
+    console.log("Font error: " + e);
+}
 
 // Load settings
 let settings = Settings.loadSettings();
+console.log("Settings loaded: " + JSON.stringify(settings));
 
 // Helper: parse hex color for Poco
 function color(render, hex) {
@@ -164,29 +177,32 @@ function drawComplications() {
 
 // ===== MAIN DRAW =====
 
-export function draw(date) {
+function draw(date) {
+    console.log("draw called with date: " + (date ? date.toTimeString() : "null"));
     render.begin();
     drawDial();
     drawDate();
     drawHands(date);
     drawComplications();
     render.end();
+    console.log("draw complete");
 }
 
 // ===== EVENT HANDLERS =====
 
 function onMinuteChange(e) {
+    console.log("minutechange event");
     draw(e.date);
 }
 
 function onBatteryUpdate() {
-    // Re-draw on battery change
+    console.log("battery update");
     const now = new Date();
     draw(now);
 }
 
 function onWeatherUpdate() {
-    // Re-draw when weather updates
+    console.log("weather update");
     const now = new Date();
     draw(now);
 }
@@ -213,16 +229,13 @@ const message = new Message({
 
 // ===== INITIALIZATION =====
 
-watch.addEventListener("minutechange", onMinuteChange);
-Battery.setOnUpdate(onBatteryUpdate);
-Weather.setOnUpdate(onWeatherUpdate);
+try {
+    Battery.initBattery(onBatteryUpdate);
+    Weather.setOnUpdate(onWeatherUpdate);
+    watch.addEventListener("minutechange", onMinuteChange);
+    console.log("Initialization complete");
+} catch (e) {
+    console.log("Initialization error: " + e);
+}
 
-// Initial draw (minutechange also fires on listener add)
-// But let's also draw immediately
-const now = new Date();
-draw(now);
-
-// Start weather fetch after a short delay to allow proxy to connect
-setTimeout(() => {
-    Weather.initWeather(settings.UseFahrenheit);
-}, 2000);
+console.log("main.js loaded");
