@@ -1,60 +1,159 @@
-/** main.js - ModernClassic analog watchface renderer */
+/** main.js - ModernClassic analog watchface (single file) */
 
 import Poco from "commodetto/Poco";
 import Message from "pebble/message";
-import * as Settings from "settings";
-import * as Battery from "battery";
-import * as Weather from "weather";
 
 console.log("main.js loading");
 
+// ===== SETTINGS =====
+const DEFAULTS = {
+    BackgroundColor: "#000000",
+    DialColor: "#AAAAAA",
+    NumberColor: "#FFFFFF",
+    HourHandColor: "#FFFFFF",
+    MinuteHandColor: "#DDDDDD",
+    DateColor: "#FFFFFF",
+    ComplicationColor: "#888888",
+    UseFahrenheit: false
+};
+
+function hexToRgb(hex) {
+    if (typeof hex === "number") {
+        const val = hex & 0xFFFFFF;
+        return {
+            r: (val >> 16) & 0xFF,
+            g: (val >> 8) & 0xFF,
+            b: val & 0xFF
+        };
+    }
+    const str = String(hex).replace("#", "");
+    const result = /^([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(str);
+    return result ? {
+        r: parseInt(result[1], 16),
+        g: parseInt(result[2], 16),
+        b: parseInt(result[3], 16)
+    } : { r: 0, g: 0, b: 0 };
+}
+
+function loadSettings() {
+    const settings = {};
+    for (const key in DEFAULTS) {
+        const stored = localStorage.getItem(key);
+        if (stored !== null) {
+            settings[key] = key === "UseFahrenheit" ? stored === "true" : stored;
+        } else {
+            settings[key] = DEFAULTS[key];
+        }
+    }
+    return settings;
+}
+
+function saveSettings(settings) {
+    for (const key in settings) {
+        localStorage.setItem(key, key === "UseFahrenheit" ? String(settings[key]) : settings[key]);
+    }
+}
+
+function parseColor(render, hex) {
+    const rgb = hexToRgb(hex);
+    return render.makeColor(rgb.r, rgb.g, rgb.b);
+}
+
+function applySettingsFromMessage(msg) {
+    const settings = loadSettings();
+    msg.forEach((value, key) => {
+        if (key in DEFAULTS) settings[key] = value;
+    });
+    saveSettings(settings);
+    return settings;
+}
+
+// ===== BATTERY =====
+let batteryPercent = 100;
+let isCharging = false;
+let isPlugged = false;
+
+function getArcColor(render) {
+    if (batteryPercent > 50) return render.makeColor(0, 200, 0);
+    if (batteryPercent > 20) return render.makeColor(220, 200, 0);
+    return render.makeColor(220, 0, 0);
+}
+
+function getArcAngles() {
+    return { start: 0, end: Math.floor(batteryPercent * 3.6) };
+}
+
+// ===== WEATHER =====
+let currentTemp = null;
+let currentUnit = "C";
+
+function setWeatherData(temp, unit) {
+    currentTemp = temp;
+    currentUnit = unit;
+    localStorage.setItem("weather_temp", String(temp));
+    localStorage.setItem("weather_time", String(Date.now()));
+    localStorage.setItem("weather_unit", unit);
+}
+
+function loadCachedWeather() {
+    const temp = localStorage.getItem("weather_temp");
+    const time = localStorage.getItem("weather_time");
+    const unit = localStorage.getItem("weather_unit");
+    if (temp !== null && time !== null) {
+        const age = Date.now() - parseInt(time, 10);
+        if (age < 30 * 60 * 1000) {
+            currentTemp = parseFloat(temp);
+            currentUnit = unit || "C";
+        }
+    }
+}
+
+function requestWeatherFromPhone(useFahrenheit) {
+    try {
+        const msg = new Message({
+            keys: ["WeatherRequest", "WeatherTemp", "WeatherUnit"]
+        });
+        if (msg.writable) {
+            msg.write(new Map([["WeatherRequest", useFahrenheit ? 1 : 0]]));
+        }
+    } catch (e) {
+        console.log("Weather request error: " + e);
+    }
+}
+
+// ===== RENDERER =====
 const render = new Poco(screen);
-
-console.log("Poco created, screen size: " + render.width + "x" + render.height);
-
-// Screen geometry
 const CX = Math.floor(render.width / 2);
 const CY = Math.floor(render.height / 2);
-const DIAL_RADIUS = Math.min(CX, CY) - 8;  // Leave margin for round screen
+const DIAL_RADIUS = Math.min(CX, CY) - 8;
 
-console.log("Dial center: " + CX + "," + CY + " radius: " + DIAL_RADIUS);
-
-// Fonts (use known-available Pebble sizes)
 let numFont, dateFont, compFont;
 try {
     numFont = new render.Font("Leco-Regular", 20);
     dateFont = new render.Font("Gothic-Regular", 14);
     compFont = new render.Font("Gothic-Regular", 14);
-    console.log("Fonts loaded successfully");
+    console.log("Fonts OK");
 } catch (e) {
     console.log("Font error: " + e);
 }
 
-// Load settings
-let settings = Settings.loadSettings();
-console.log("Settings loaded: " + JSON.stringify(settings));
+let settings = loadSettings();
+console.log("Settings loaded");
 
-// Helper: parse hex color for Poco
-function color(render, hex) {
-    return Settings.parseColor(render, hex);
+function color(hex) {
+    return parseColor(render, hex);
 }
 
-// ===== DRAW FUNCTIONS =====
-
 function drawDial() {
-    const dialColor = color(render, settings.DialColor);
-    const bgColor = color(render, settings.BackgroundColor);
-    const numColor = color(render, settings.NumberColor);
+    const dialColor = color(settings.DialColor);
+    const bgColor = color(settings.BackgroundColor);
+    const numColor = color(settings.NumberColor);
 
-    // Background
     render.fillRectangle(bgColor, 0, 0, render.width, render.height);
-
-    // Outer dial ring
     render.drawCircle(dialColor, CX, CY, DIAL_RADIUS, 0, 360);
 
-    // Tick marks
     for (let i = 0; i < 60; i++) {
-        const angle = (i * 6) - 90;  // 0 at top
+        const angle = (i * 6) - 90;
         const radians = angle * Math.PI / 180;
         const isHour = (i % 5 === 0);
         const tickLen = isHour ? 12 : 6;
@@ -70,10 +169,9 @@ function drawDial() {
         render.drawLine(x1, y1, x2, y2, dialColor, tickWidth);
     }
 
-    // Numbers 1-12
     const numRadius = DIAL_RADIUS - 28;
     for (let n = 1; n <= 12; n++) {
-        const angle = (n * 30) - 90;  // 0 at top
+        const angle = (n * 30) - 90;
         const radians = angle * Math.PI / 180;
         const nx = CX + Math.cos(radians) * numRadius;
         const ny = CY + Math.sin(radians) * numRadius;
@@ -81,196 +179,169 @@ function drawDial() {
         const numStr = String(n);
         const tw = render.getTextWidth(numStr, numFont);
         const th = numFont.height;
-
         render.drawText(numStr, numFont, numColor, nx - tw / 2, ny - th / 2);
     }
 }
 
 function drawDate() {
     const now = new Date();
-    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
     const dateStr = monthNames[now.getMonth()] + " " + now.getDate();
-
-    const dateColor = color(render, settings.DateColor);
+    const dateColor = color(settings.DateColor);
     const tw = render.getTextWidth(dateStr, dateFont);
-    const th = dateFont.height;
-
-    // Position above center
     const y = CY - DIAL_RADIUS + 45;
     render.drawText(dateStr, dateFont, dateColor, CX - tw / 2, y);
 }
 
 function drawHands(date) {
-    const hourColor = color(render, settings.HourHandColor);
-    const minuteColor = color(render, settings.MinuteHandColor);
-
+    const hourColor = color(settings.HourHandColor);
+    const minuteColor = color(settings.MinuteHandColor);
     const hours = date.getHours() % 12;
     const minutes = date.getMinutes();
-
-    // Hour hand angle
     const hourAngle = (hours * 30 + minutes * 0.5) - 90;
-    // Minute hand angle
     const minuteAngle = (minutes * 6) - 90;
 
-    // Draw hour hand (length 65, thickness 5)
     const hourRad = hourAngle * Math.PI / 180;
     const hourLen = Math.floor(DIAL_RADIUS * 0.45);
-    const hx = CX + Math.cos(hourRad) * hourLen;
-    const hy = CY + Math.sin(hourRad) * hourLen;
-    render.drawLine(CX, CY, hx, hy, hourColor, 5);
+    render.drawLine(CX, CY,
+        CX + Math.cos(hourRad) * hourLen,
+        CY + Math.sin(hourRad) * hourLen,
+        hourColor, 5);
 
-    // Draw minute hand (length 90, thickness 3)
     const minRad = minuteAngle * Math.PI / 180;
     const minLen = Math.floor(DIAL_RADIUS * 0.70);
-    const mx = CX + Math.cos(minRad) * minLen;
-    const my = CY + Math.sin(minRad) * minLen;
-    render.drawLine(CX, CY, mx, my, minuteColor, 3);
+    render.drawLine(CX, CY,
+        CX + Math.cos(minRad) * minLen,
+        CY + Math.sin(minRad) * minLen,
+        minuteColor, 3);
 
-    // Center dot
-    const centerColor = color(render, settings.DialColor);
-    render.drawCircle(centerColor, CX, CY, 4, 0, 360);
+    render.drawCircle(color(settings.DialColor), CX, CY, 4, 0, 360);
 }
 
 function drawComplications() {
-    const compColor = color(render, settings.ComplicationColor);
-    const textColor = color(render, settings.NumberColor);
+    const compColor = color(settings.ComplicationColor);
+    const textColor = color(settings.NumberColor);
     const compRadius = 22;
 
-    // Weather complication (left of center, ~9 o'clock)
+    // Weather (left)
     const weatherX = CX - Math.floor(DIAL_RADIUS * 0.55);
     const weatherY = CY;
-    const temp = Weather.getCurrentTemp();
-
     render.drawCircle(compColor, weatherX, weatherY, compRadius, 0, 360);
-    if (temp !== null) {
-        const unit = Weather.getCurrentUnit();
-        const tempStr = temp + "°" + unit;
+    if (currentTemp !== null) {
+        const tempStr = currentTemp + "°" + currentUnit;
         const tw = render.getTextWidth(tempStr, compFont);
-        const th = compFont.height;
-        render.drawText(tempStr, compFont, textColor, weatherX - tw / 2, weatherY - th / 2);
+        render.drawText(tempStr, compFont, textColor, weatherX - tw / 2, weatherY - compFont.height / 2);
     } else {
         const dash = "--";
         const tw = render.getTextWidth(dash, compFont);
-        const th = compFont.height;
-        render.drawText(dash, compFont, textColor, weatherX - tw / 2, weatherY - th / 2);
+        render.drawText(dash, compFont, textColor, weatherX - tw / 2, weatherY - compFont.height / 2);
     }
 
-    // Battery complication (right of center, ~3 o'clock)
+    // Battery (right)
     const batteryX = CX + Math.floor(DIAL_RADIUS * 0.55);
     const batteryY = CY;
-    const batteryPercent = Battery.getPercent();
-    const arcColor = Battery.getArcColor(render);
-    const angles = Battery.getArcAngles();
+    const arcColor = getArcColor(render);
+    const angles = getArcAngles();
 
-    // Battery outline circle
     render.drawCircle(compColor, batteryX, batteryY, compRadius, 0, 360);
-    // Battery arc (filled portion)
     render.drawCircle(arcColor, batteryX, batteryY, compRadius - 4, angles.start - 90, angles.end - 90);
 
-    // Battery percentage text
     const battStr = batteryPercent + "%";
     const bw = render.getTextWidth(battStr, compFont);
-    const bh = compFont.height;
-    render.drawText(battStr, compFont, textColor, batteryX - bw / 2, batteryY - bh / 2);
+    render.drawText(battStr, compFont, textColor, batteryX - bw / 2, batteryY - compFont.height / 2);
 }
 
-// ===== MAIN DRAW =====
-
 function draw(date) {
-    console.log("draw called with date: " + (date ? date.toTimeString() : "null"));
     render.begin();
     drawDial();
     drawDate();
     drawHands(date);
     drawComplications();
     render.end();
-    console.log("draw complete");
 }
 
-// ===== EVENT HANDLERS =====
-
+// ===== EVENTS & INIT =====
 function onMinuteChange(e) {
-    console.log("minutechange event");
+    console.log("minutechange");
     draw(e.date);
 }
 
 function onBatteryUpdate() {
-    console.log("battery update");
-    const now = new Date();
-    draw(now);
+    draw(new Date());
 }
 
 function onWeatherUpdate() {
-    console.log("weather update");
-    const now = new Date();
-    draw(now);
+    draw(new Date());
 }
 
-// ===== SETTINGS =====
-
-const message = new Message({
-    keys: ["BackgroundColor", "DialColor", "NumberColor", "HourHandColor",
-           "MinuteHandColor", "DateColor", "ComplicationColor", "UseFahrenheit",
-           "WeatherRequest", "WeatherTemp", "WeatherUnit"],
+const msg = new Message({
+    keys: ["BackgroundColor","DialColor","NumberColor","HourHandColor",
+           "MinuteHandColor","DateColor","ComplicationColor","UseFahrenheit",
+           "WeatherRequest","WeatherTemp","WeatherUnit"],
     onReadable() {
-        const msg = this.read();
+        const m = this.read();
         let needsRedraw = false;
 
-        // Check for weather response from PKJS
         let weatherTemp = null;
         let weatherUnit = null;
-        msg.forEach((value, key) => {
+        m.forEach((value, key) => {
             if (key === "WeatherTemp") weatherTemp = value;
             if (key === "WeatherUnit") weatherUnit = value;
         });
-
         if (weatherTemp !== null && weatherUnit !== null) {
-            Weather.setWeatherData(weatherTemp, weatherUnit);
+            setWeatherData(weatherTemp, weatherUnit);
             needsRedraw = true;
         }
 
-        // Check for settings changes from Clay
-        const hasSettings = msg.has("BackgroundColor") || msg.has("DialColor") ||
-                            msg.has("NumberColor") || msg.has("HourHandColor") ||
-                            msg.has("MinuteHandColor") || msg.has("DateColor") ||
-                            msg.has("ComplicationColor") || msg.has("UseFahrenheit");
+        const hasSettings = m.has("BackgroundColor") || m.has("DialColor") ||
+                            m.has("NumberColor") || m.has("HourHandColor") ||
+                            m.has("MinuteHandColor") || m.has("DateColor") ||
+                            m.has("ComplicationColor") || m.has("UseFahrenheit");
         if (hasSettings) {
-            settings = Settings.applySettingsFromMessage(msg);
-            Weather.initWeather(settings.UseFahrenheit);
+            settings = applySettingsFromMessage(m);
+            requestWeatherFromPhone(settings.UseFahrenheit);
             needsRedraw = true;
         }
 
-        if (needsRedraw) {
-            const now = new Date();
-            draw(now);
-        }
+        if (needsRedraw) draw(new Date());
     },
-    onWritable() {
-        console.log("Message channel ready");
-    },
-    onSuspend() {
-        console.log("Message channel suspended");
-    }
+    onWritable() { console.log("msg ready"); },
+    onSuspend() { console.log("msg suspended"); }
 });
 
-// ===== INITIALIZATION =====
-
-// Ensure watch global is accessible
+// Init battery
 try {
-    Battery.initBattery(onBatteryUpdate);
-    Weather.setOnUpdate(onWeatherUpdate);
-
-    // Use globalThis.watch for explicit access to the Pebble watch global
-    const watchGlobal = globalThis.watch;
-    if (watchGlobal) {
-        watchGlobal.addEventListener("minutechange", onMinuteChange);
-        console.log("Initialization complete");
-    } else {
-        console.log("watch global not available");
-    }
+    const Battery = require("embedded:sensor/Battery");
+    const batt = new Battery({
+        onSample() {
+            const s = this.sample();
+            batteryPercent = s.percent;
+            isCharging = s.charging;
+            isPlugged = s.plugged;
+            onBatteryUpdate();
+        }
+    });
+    const initial = batt.sample();
+    batteryPercent = initial.percent;
+    isCharging = initial.charging;
+    isPlugged = initial.plugged;
+    console.log("Battery: " + batteryPercent + "%");
 } catch (e) {
-    console.log("Initialization error: " + e);
+    console.log("Battery init error: " + e);
 }
 
-console.log("main.js loaded");
+// Init weather
+loadCachedWeather();
+
+// Init watch events
+const watchGlobal = globalThis.watch;
+if (watchGlobal) {
+    watchGlobal.addEventListener("minutechange", onMinuteChange);
+    console.log("Watch events registered");
+} else {
+    console.log("watch global missing");
+}
+
+// Initial draw
+draw(new Date());
+console.log("main.js done");
