@@ -189,5 +189,5 @@ function draw(date) {
     }
 }
 
-// Defer all init until after module load completes
-Timer.set(init, 100);
+console.log("Module loaded");
+setTimeout(init, 100);
