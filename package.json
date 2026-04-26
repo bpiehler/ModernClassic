@@ -22,8 +22,7 @@
       "watchface": true
     },
     "capabilities": [
-      "configurable",
-      "location"
+      "configurable"
     ],
     "messageKeys": [
       "BackgroundColor",
